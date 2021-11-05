@@ -55,7 +55,7 @@ CAN_HandleTypeDef hcan;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-uint16_t ADC2ConvertedValues[64]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
+uint16_t ADC2ConvertedValues[256]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
 float pressure[3];
 float current;
 uint32_t sum = 0;
@@ -122,16 +122,16 @@ int main(void)
   /* USER CODE BEGIN 2 */
   hcan.Instance->MCR = 0x60; // important for debugging canbus, allows for normal operation during debugging
   HAL_CAN_Start(&hcan);
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)ADC2ConvertedValues, 64);
-  HAL_TIM_Base_Start_IT(&htim2);
-  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)ADC2ConvertedValues, 256);
+ /* HAL_TIM_Base_Start_IT(&htim2);
+  __HAL_TIM_SET_COUNTER(&htim2, 0); */
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	 if (HAL_CAN_GetRxFifoFillLevel(&hcan, fifo ) !=0) { // check if mail box is not empty
+	/* if (HAL_CAN_GetRxFifoFillLevel(&hcan, fifo ) !=0) { // check if mail box is not empty
 	  	HAL_CAN_GetRxMessage(&hcan, fifo, &RxHeader, Data); // copy frame data to RX header
 	  	switch (RxHeader.ExtId) {
 	  		case 0:
@@ -150,6 +150,19 @@ int main(void)
 	  	}
 
 	 }
+	 for (uint8_t i=0; i < 3; ++i) { 										//looping through CAN messages and sending data acquired
+
+	 				TxHeader.StdId = IDs[i];
+	 				float2Bytes(pressure[2-i], &bytes[0]); 						//converting the floats to packets of bytes
+
+	 				for (uint8_t j=0 ; j < 4; j++) {
+	 					Data[3-j] = bytes[j]; 									//writing down for the data buffer
+	 				}
+
+	 				HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
+	 				while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));		//waiting till message gets through
+	 }
+	 HAL_Delay(200); */
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -173,11 +186,11 @@ void SystemClock_Config(void)
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV2;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL4;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -272,7 +285,6 @@ static void MX_ADC2_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_4;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -302,8 +314,8 @@ static void MX_CAN_Init(void)
   hcan.Init.Prescaler = 4;
   hcan.Init.Mode = CAN_MODE_NORMAL;
   hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan.Init.TimeSeg1 = CAN_BS1_11TQ;
-  hcan.Init.TimeSeg2 = CAN_BS2_4TQ;
+  hcan.Init.TimeSeg1 = CAN_BS1_15TQ;
+  hcan.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan.Init.TimeTriggeredMode = DISABLE;
   hcan.Init.AutoBusOff = DISABLE;
   hcan.Init.AutoWakeUp = DISABLE;
@@ -441,11 +453,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 		sum = 0;
 		mean = 0;
 
-		for(uint8_t j=0; j < 16; j++) {
+		for(uint8_t j=0; j < 64; j++) {
 			sum += ADC2ConvertedValues[i + 4*j];
 		}
 
-		mean = sum/16;
+		mean = sum/64;
 
 		//i = 0, 1 psi250 max. i=2 psi5805.51 max
 		switch (i)
@@ -472,7 +484,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 	}
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	for (uint8_t i=0; i < 3; ++i) { 										//looping through CAN messages and sending data acquired
 
 				TxHeader.StdId = IDs[i];
@@ -485,7 +497,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
 				while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));		//waiting till message gets through
 			}
-}
+} */
 /* USER CODE END 4 */
 
 /**
