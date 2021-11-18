@@ -131,15 +131,15 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	/* if (HAL_CAN_GetRxFifoFillLevel(&hcan, fifo ) !=0) { // check if mail box is not empty
-	  	HAL_CAN_GetRxMessage(&hcan, fifo, &RxHeader, Data); // copy frame data to RX header
+	if (HAL_CAN_GetRxFifoFillLevel(&hcan, fifo ) !=0) { 									// check if mail box is not empty
+	  	HAL_CAN_GetRxMessage(&hcan, fifo, &RxHeader, Data); 								// copy frame data to RX header
 	  	switch (RxHeader.ExtId) {
 	  		case 0:
-	  			if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {
+	  			if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {			// when brakes should not be engaged
 	  				HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
 	  			}
 
-	  			if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {
+	  			if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {		//when brakes should be engaged
 	  				HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
 	  			}
 	  			break;
@@ -152,17 +152,17 @@ int main(void)
 	 }
 	 for (uint8_t i=0; i < 3; ++i) { 										//looping through CAN messages and sending data acquired
 
-	 				TxHeader.StdId = IDs[i];
-	 				float2Bytes(pressure[2-i], &bytes[0]); 						//converting the floats to packets of bytes
+	 	TxHeader.StdId = IDs[i];
+	 	float2Bytes(pressure[2-i], &bytes[0]); 						//converting the floats to packets of bytes
 
-	 				for (uint8_t j=0 ; j < 4; j++) {
-	 					Data[3-j] = bytes[j]; 									//writing down for the data buffer
-	 				}
+		for (uint8_t j=0 ; j < 4; j++) {
+			Data[3-j] = bytes[j]; 									//writing down for the data buffer
+		}
 
-	 				HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
-	 				while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));		//waiting till message gets through
+		HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
+		while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));		//waiting till message gets through
 	 }
-	 HAL_Delay(200); */
+	 HAL_Delay(200);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
