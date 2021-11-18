@@ -79,7 +79,7 @@ static void MX_ADC2_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-
+void float2Bytes(float val, uint8_t *bytes_array);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
