@@ -133,7 +133,7 @@ int main(void)
   {
 	if (HAL_CAN_GetRxFifoFillLevel(&hcan, fifo ) !=0) { 									// check if mail box is not empty
 	  	HAL_CAN_GetRxMessage(&hcan, fifo, &RxHeader, Data); 								// copy frame data to RX header
-	  	switch (RxHeader.ExtId) {
+	  	switch (RxHeader.StdId) {
 	  		case 0:
 	  			if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {			// when brakes should not be engaged
 	  				HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
@@ -156,7 +156,7 @@ int main(void)
 	 	float2Bytes(pressure[2-i], &bytes[0]); 						//converting the floats to packets of bytes
 
 		for (uint8_t j=0 ; j < 4; j++) {
-			Data[3-j] = bytes[j]; 									//writing down for the data buffer
+			Data[j] = bytes[j]; 									//writing down for the data buffer
 		}
 
 		HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
@@ -342,7 +342,7 @@ static void MX_CAN_Init(void)
   TxHeader.StdId = 0x00;
   //TxHeader.ExtId = 0x01;
   TxHeader.RTR = CAN_RTR_DATA; 	 			// want data frame
-  TxHeader.IDE = CAN_ID_EXT;	 			// want extended frame
+  TxHeader.IDE = CAN_ID_STD;	 			// want standard frame
   TxHeader.DLC = 4;			 	 			// amounts of bytes u sending
   TxHeader.TransmitGlobalTime = DISABLE;
   /* USER CODE END CAN_Init 2 */
