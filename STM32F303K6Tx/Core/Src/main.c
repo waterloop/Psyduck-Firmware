@@ -329,8 +329,10 @@ static void MX_CAN_Init(void)
   /* USER CODE BEGIN CAN_Init 2 */
   FilterConfig.FilterIdHigh = 0x0000;
   FilterConfig.FilterIdLow = 0x0000;
-  FilterConfig.FilterMaskIdHigh = 0x0000;
+
+  FilterConfig.FilterMaskIdHigh = 0xffff << 5;
   FilterConfig.FilterMaskIdLow = 0x0000;
+
   FilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
   FilterConfig.FilterBank = 13;
   FilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
