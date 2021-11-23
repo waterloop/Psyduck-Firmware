@@ -36,7 +36,7 @@
 #define RSHUNT 0.5F
 #define V2LP 62.5F
 #define V2HP 580.151F
-#define VGain_1	ADC_VOLTAGE_CONVERSION*V2LP*3/2
+#define VGain_1  ADC_VOLTAGE_CONVERSION*V2LP*3/2
 #define VGain_2 ADC_VOLTAGE_CONVERSION*V2HP
 #define IGain ADC_VOLTAGE_CONVERSION/RSHUNT/50.0
 /* USER CODE END PD */
@@ -84,7 +84,71 @@ void float2Bytes(float val, uint8_t *bytes_array);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void float2Bytes(float val, uint8_t *bytes_array){
+  // Create union of shared memory space
+  union {
+    float float_variable;
+    uint8_t temp_array[4];
+  } u;
+  // Overite bytes of union with float variable
+  u.float_variable = val;
+  // Assign bytes to input array
+  memcpy(bytes_array, u.temp_array, 4);
+}
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+  for (uint8_t i=0; i < 4; i++) {
+    sum = 0;
+    mean = 0;
+
+    for(uint8_t j=0; j < 64; j++) {
+      sum += ADC2ConvertedValues[i + 4*j];
+    }
+
+    mean = sum/64;
+
+    //i = 0, 1 psi250 max. i=2 psi5805.51 max
+    switch (i)
+    {
+      case 0:
+        pressure[0] = (((float)mean)*VGain_1) + offset[i];
+      break;
+
+      case 1:
+        pressure[1] = (((float)mean)*VGain_1) + offset[i];
+      break;
+
+      case 2:
+        pressure[2] = (((float)mean)*VGain_2) + offset[i];
+      break;
+
+      case 3:
+        current = (((float)mean)*IGain) + offset[i];
+      break;
+
+      default:
+      break;
+        }
+  }
+}
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
+  HAL_CAN_GetRxMessage(hcan, fifo, &RxHeader, Data);                 // copy frame data to RX header
+  switch (RxHeader.StdId) {
+    case 0:
+      if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {      // when brakes should not be engaged
+        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
+      }
+      else if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {    //when brakes should be engaged
+        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
+      }
+      break;
+
+    default:
+      break;
+
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -131,38 +195,18 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	if (HAL_CAN_GetRxFifoFillLevel(&hcan, fifo ) !=0) { 									// check if mail box is not empty
-	  	HAL_CAN_GetRxMessage(&hcan, fifo, &RxHeader, Data); 								// copy frame data to RX header
-	  	switch (RxHeader.StdId) {
-	  		case 0:
-	  			if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {			// when brakes should not be engaged
-	  				HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
-	  			}
+   for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
+     TxHeader.StdId = IDs[i];
+     float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
 
-	  			if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {		//when brakes should be engaged
-	  				HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
-	  			}
-	  			break;
+    for (uint8_t j=0 ; j < 4; j++) {
+      Data[j] = bytes[j];                   //writing down for the data buffer
+    }
 
-	  		default:
-	  			break;
-
-	  	}
-
-	 }
-	 for (uint8_t i=0; i < 3; ++i) { 										//looping through CAN messages and sending data acquired
-
-	 	TxHeader.StdId = IDs[i];
-	 	float2Bytes(pressure[2-i], &bytes[0]); 						//converting the floats to packets of bytes
-
-		for (uint8_t j=0 ; j < 4; j++) {
-			Data[j] = bytes[j]; 									//writing down for the data buffer
-		}
-
-		HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
-		while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));		//waiting till message gets through
-	 }
-	 HAL_Delay(200);
+    HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
+    while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
+   }
+   HAL_Delay(200);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -343,9 +387,9 @@ static void MX_CAN_Init(void)
   //Configuring TX:
   TxHeader.StdId = 0x00;
   //TxHeader.ExtId = 0x01;
-  TxHeader.RTR = CAN_RTR_DATA; 	 			// want data frame
-  TxHeader.IDE = CAN_ID_STD;	 			// want standard frame
-  TxHeader.DLC = 4;			 	 			// amounts of bytes u sending
+  TxHeader.RTR = CAN_RTR_DATA;          // want data frame
+  TxHeader.IDE = CAN_ID_STD;         // want standard frame
+  TxHeader.DLC = 4;                // amounts of bytes u sending
   TxHeader.TransmitGlobalTime = DISABLE;
   /* USER CODE END CAN_Init 2 */
 
@@ -438,67 +482,20 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void float2Bytes(float val, uint8_t *bytes_array){
-  // Create union of shared memory space
-  union {
-    float float_variable;
-    uint8_t temp_array[4];
-  } u;
-  // Overite bytes of union with float variable
-  u.float_variable = val;
-  // Assign bytes to input array
-  memcpy(bytes_array, u.temp_array, 4);
-}
-
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
-	for (uint8_t i=0; i < 4; i++) {
-		sum = 0;
-		mean = 0;
-
-		for(uint8_t j=0; j < 64; j++) {
-			sum += ADC2ConvertedValues[i + 4*j];
-		}
-
-		mean = sum/64;
-
-		//i = 0, 1 psi250 max. i=2 psi5805.51 max
-		switch (i)
-		{
-			case 0:
-				pressure[0] = (((float)mean)*VGain_1) + offset[i];
-			break;
-
-			case 1:
-				pressure[1] = (((float)mean)*VGain_1) + offset[i];
-			break;
-
-			case 2:
-				pressure[2] = (((float)mean)*VGain_2) + offset[i];
-			break;
-
-			case 3:
-				current = (((float)mean)*IGain) + offset[i];
-			break;
-
-			default:
-			break;
-				}
-	}
-}
 
 /*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	for (uint8_t i=0; i < 3; ++i) { 										//looping through CAN messages and sending data acquired
+  for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
 
-				TxHeader.StdId = IDs[i];
-				float2Bytes(pressure[2-i], &bytes[0]); 						//converting the floats to packets of bytes
+        TxHeader.StdId = IDs[i];
+        float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
 
-				for (uint8_t j=0 ; j < 4; j++) {
-					Data[3-j] = bytes[j]; 									//writing down for the data buffer
-				}
+        for (uint8_t j=0 ; j < 4; j++) {
+          Data[3-j] = bytes[j];                   //writing down for the data buffer
+        }
 
-				HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox ); 	// load message to mailbox
-				while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));		//waiting till message gets through
-			}
+        HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
+        while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
+      }
 } */
 /* USER CODE END 4 */
 
