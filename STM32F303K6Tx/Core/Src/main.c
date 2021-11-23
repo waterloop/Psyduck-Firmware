@@ -186,6 +186,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   hcan.Instance->MCR = 0x60; // important for debugging canbus, allows for normal operation during debugging
   HAL_CAN_Start(&hcan);
+  HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
   HAL_ADC_Start_DMA(&hadc2, (uint32_t*)ADC2ConvertedValues, 256);
  /* HAL_TIM_Base_Start_IT(&htim2);
   __HAL_TIM_SET_COUNTER(&htim2, 0); */
@@ -451,7 +452,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 2);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
