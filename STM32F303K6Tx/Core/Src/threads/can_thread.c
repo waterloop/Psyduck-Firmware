@@ -12,7 +12,7 @@ void can_th_fn(void *argument)
   {
       osMutexAcquire(sensorVal_mtx, osWaitForever);
       CANFrame tx_frame0 = CANFrame_init(PRESSURE_SENSOR_HIGH);
-      CANFrame_set_field(&tx_frame0, PRESURE_HIGH, FLOAT_TO_UINT(pressure[2]));
+      CANFrame_set_field(&tx_frame0, PRESSURE_HIGH, FLOAT_TO_UINT(pressure[2]));
 
       CANFrame tx_frame1 = CANFrame_init(PRESSURE_SENSOR_LOW_1);
       CANFrame_set_field(&tx_frame1, PRESSURE_LOW_1, FLOAT_TO_UINT(pressure[0]));
