@@ -19,10 +19,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "string.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,13 +55,20 @@ CAN_HandleTypeDef hcan;
 
 TIM_HandleTypeDef htim2;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 uint16_t ADC2ConvertedValues[256]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
 float pressure[3];
 float current;
 uint32_t sum = 0;
 uint16_t mean = 0;
-float offset[4] = {-31.25, -31.25, 0, 0};
+float offset1[4] = {-31.25, -31.25, 0, 0}; //changed to offset1 due to multiple definition error
 uint8_t bytes[4];
 uint8_t IDs[3] = {0x20, 0x21, 0x22};
 uint8_t Data[4];
@@ -78,6 +86,8 @@ static void MX_DMA_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM2_Init(void);
+void StartDefaultTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 void float2Bytes(float val, uint8_t *bytes_array);
 /* USER CODE END PFP */
@@ -120,6 +130,7 @@ int main(void)
   MX_CAN_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  //return psyduck_entry();
   hcan.Instance->MCR = 0x60; // important for debugging canbus, allows for normal operation during debugging
   HAL_CAN_Start(&hcan);
   HAL_ADC_Start_DMA(&hadc2, (uint32_t*)ADC2ConvertedValues, 256);
@@ -127,6 +138,41 @@ int main(void)
   __HAL_TIM_SET_COUNTER(&htim2, 0); */
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -405,7 +451,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
@@ -463,19 +509,19 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 		switch (i)
 		{
 			case 0:
-				pressure[0] = (((float)mean)*VGain_1) + offset[i];
+				pressure[0] = (((float)mean)*VGain_1) + offset1[i];
 			break;
 
 			case 1:
-				pressure[1] = (((float)mean)*VGain_1) + offset[i];
+				pressure[1] = (((float)mean)*VGain_1) + offset1[i];
 			break;
 
 			case 2:
-				pressure[2] = (((float)mean)*VGain_2) + offset[i];
+				pressure[2] = (((float)mean)*VGain_2) + offset1[i];
 			break;
 
 			case 3:
-				current = (((float)mean)*IGain) + offset[i];
+				current = (((float)mean)*IGain) + offset1[i];
 			break;
 
 			default:
@@ -499,6 +545,24 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 			}
 } */
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
