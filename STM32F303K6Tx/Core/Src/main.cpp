@@ -6,23 +6,24 @@
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
+  * <h2><center>&copy; Copyright (c) 2022 STMicroelectronics.
   * All rights reserved.</center></h2>
   *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
+  * This software component is licensed by ST under Ultimate Liberty license
+  * SLA0044, the "License"; You may not use this file except in compliance with
+  * the License. You may obtain a copy of the License at:
+  *                             www.st.com/SLA0044
   *
   ******************************************************************************
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "string.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,13 +33,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ADC_VOLTAGE_CONVERSION 0.0008058608F
-#define RSHUNT 0.5F
-#define V2LP 62.5F
-#define V2HP 580.151F
-#define VGain_1  ADC_VOLTAGE_CONVERSION*V2LP*3/2
-#define VGain_2 ADC_VOLTAGE_CONVERSION*V2HP
-#define IGain ADC_VOLTAGE_CONVERSION/RSHUNT/50.0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,21 +48,15 @@ CAN_HandleTypeDef hcan;
 
 TIM_HandleTypeDef htim2;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
-uint16_t ADC2ConvertedValues[256]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
-float pressure[3];
-float current;
-uint32_t sum = 0;
-uint16_t mean = 0;
-float offset[4] = {-31.25, -31.25, 0, 0};
-uint8_t bytes[4];
-uint8_t IDs[3] = {0x20, 0x21, 0x22};
-uint8_t Data[4];
-uint32_t TxMailBox = 0;
-CAN_TxHeaderTypeDef TxHeader;
-CAN_FilterTypeDef FilterConfig;
-CAN_RxHeaderTypeDef RxHeader;
-uint32_t fifo =0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,77 +66,20 @@ static void MX_DMA_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM2_Init(void);
+void StartDefaultTask(void *argument);
+
 /* USER CODE BEGIN PFP */
-void float2Bytes(float val, uint8_t *bytes_array);
+extern "C" {
+  HAL_StatusTypeDef HAL_Init(void);
+  osStatus_t osKernelInitialize(void);
+  osThreadId_t osThreadNew(osThreadFunc_t func, void *argument, const osThreadAttr_t *attr);
+  osStatus_t osKernelStart(void);
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void float2Bytes(float val, uint8_t *bytes_array){
-  // Create union of shared memory space
-  union {
-    float float_variable;
-    uint8_t temp_array[4];
-  } u;
-  // Overite bytes of union with float variable
-  u.float_variable = val;
-  // Assign bytes to input array
-  memcpy(bytes_array, u.temp_array, 4);
-}
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
-  for (uint8_t i=0; i < 4; i++) {
-    sum = 0;
-    mean = 0;
-
-    for(uint8_t j=0; j < 64; j++) {
-      sum += ADC2ConvertedValues[i + 4*j];
-    }
-
-    mean = sum/64;
-
-    //i = 0, 1 psi250 max. i=2 psi5805.51 max
-    switch (i)
-    {
-      case 0:
-        pressure[0] = (((float)mean)*VGain_1) + offset[i];
-      break;
-
-      case 1:
-        pressure[1] = (((float)mean)*VGain_1) + offset[i];
-      break;
-
-      case 2:
-        pressure[2] = (((float)mean)*VGain_2) + offset[i];
-      break;
-
-      case 3:
-        current = (((float)mean)*IGain) + offset[i];
-      break;
-
-      default:
-      break;
-        }
-  }
-}
-
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
-  HAL_CAN_GetRxMessage(hcan, fifo, &RxHeader, Data);                 // copy frame data to RX header
-  switch (RxHeader.StdId) {
-    case 0:
-      if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {      // when brakes should not be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
-      }
-      else if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {    //when brakes should be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
-      }
-      break;
-
-    default:
-      break;
-
-  }
-}
 /* USER CODE END 0 */
 
 /**
@@ -184,34 +115,51 @@ int main(void)
   MX_CAN_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  hcan.Instance->MCR = 0x60; // important for debugging canbus, allows for normal operation during debugging
-  HAL_CAN_Start(&hcan);
-  HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)ADC2ConvertedValues, 256);
- /* HAL_TIM_Base_Start_IT(&htim2);
-  __HAL_TIM_SET_COUNTER(&htim2, 0); */
+
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-   for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-     TxHeader.StdId = IDs[i];
-     float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
-
-    for (uint8_t j=0 ; j < 4; j++) {
-      Data[j] = bytes[j];                   //writing down for the data buffer
-    }
-
-    HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
-    while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
-   }
-   HAL_Delay(200);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
   }
   /* USER CODE END 3 */
 }
@@ -372,26 +320,7 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
-  FilterConfig.FilterIdHigh = 0x0000;
-  FilterConfig.FilterIdLow = 0x0000;
 
-  FilterConfig.FilterMaskIdHigh = 0xffff << 5;
-  FilterConfig.FilterMaskIdLow = 0x0000;
-
-  FilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-  FilterConfig.FilterBank = 13;
-  FilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-  FilterConfig.FilterScale = CAN_FILTERSCALE_16BIT;
-  FilterConfig.FilterActivation = CAN_FILTER_ENABLE;
-  HAL_CAN_ConfigFilter(&hcan, &FilterConfig);
-
-  //Configuring TX:
-  TxHeader.StdId = 0x00;
-  //TxHeader.ExtId = 0x01;
-  TxHeader.RTR = CAN_RTR_DATA;          // want data frame
-  TxHeader.IDE = CAN_ID_STD;         // want standard frame
-  TxHeader.DLC = 4;                // amounts of bytes u sending
-  TxHeader.TransmitGlobalTime = DISABLE;
   /* USER CODE END CAN_Init 2 */
 
 }
@@ -452,7 +381,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 2);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 2);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
@@ -484,21 +413,46 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-
-        TxHeader.StdId = IDs[i];
-        float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
-
-        for (uint8_t j=0 ; j < 4; j++) {
-          Data[3-j] = bytes[j];                   //writing down for the data buffer
-        }
-
-        HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
-        while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
-      }
-} */
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+ /**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM1 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM1) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
