@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "string.h"
+#include "can.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,7 +63,8 @@ uint32_t sum = 0;
 uint16_t mean = 0;
 float offset[4] = {-31.25, -31.25, 0, 0};
 uint8_t bytes[4];
-uint8_t IDs[3] = {0x20, 0x21, 0x22};
+uint32_t *IDs = {PRESSURE_SENSOR_HIGH, PRESSURE_SENSOR_LOW_1, PRESSURE_SENSOR_LOW_2);
+Field *fields = {PRESSURE_HIGH, PRESSURE_LOW_1, PRESSURE_LOW_2};
 uint8_t Data[4];
 uint32_t TxMailBox = 0;
 CAN_TxHeaderTypeDef TxHeader;
@@ -132,7 +134,30 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   }
 }
 
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
+if (!Queue_empty(&RX_QUEUE)) {
+    CANFrame rx_frame = CANBus_get_frame();
+    uint8_t state_id = CANFrame_get_field(&rx_frame, STATE_ID);
+    
+    if ((state_id == ARMED) || (state_id == AUTO_PILOT) || (state_id == ACCELERATING)) {   // when brakes should be disengaged
+      HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
+      CANFrame tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
+      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK_ID, state_id);
+      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK, 0x00);
+      CANFrame_put_frame(&tx_frame);      
+    }
+
+    else if ((state_id == BRAKING) || (state_id == EMERGENCY_BRAKE) || (state_id == SYSTEM_FAILURE) || (state_id == MANUAL_OPERATION_WAITING)) {    //when brakes should be engaged
+      HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
+      CANFrame tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
+      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK_ID, state_id);
+      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK, 0x00);
+      CANFrame_put_frame(&tx_frame);  
+    }
+
+}
+
+// previous CAN Rx code
+/* void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
   HAL_CAN_GetRxMessage(hcan, fifo, &RxHeader, Data);                 // copy frame data to RX header
   switch (RxHeader.StdId) {
     case 0:
@@ -148,7 +173,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
       break;
 
   }
-}
+} */
+
 /* USER CODE END 0 */
 
 /**
@@ -194,18 +220,21 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   while (1)
   {
-   for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-     TxHeader.StdId = IDs[i];
-     float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
+    CANFrame tx_frame;
 
-    for (uint8_t j=0 ; j < 4; j++) {
-      Data[j] = bytes[j];                   //writing down for the data buffer
+    for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
+      float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
+
+      for (uint8_t j=0 ; j < 4; j++) {
+        Data[j] = bytes[j];                   //writing down for the data buffer
     }
 
-    HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
-    while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
+    tx_frame = CANFrame_init(IDs[i]);
+    CANFrame_set_field(&tx_frame, field[i], Data);
+    CANBus_put_frame(&tx_frame);
    }
    HAL_Delay(200);
     /* USER CODE END WHILE */
