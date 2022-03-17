@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "string.h"
+#include <stdio.h>
 #include "can.h"
 /* USER CODE END Includes */
 
@@ -63,8 +64,8 @@ uint32_t sum = 0;
 uint16_t mean = 0;
 float offset[4] = {-31.25, -31.25, 0, 0};
 uint8_t bytes[4];
-uint32_t *IDs = {PRESSURE_SENSOR_HIGH, PRESSURE_SENSOR_LOW_1, PRESSURE_SENSOR_LOW_2);
-Field *fields = {PRESSURE_HIGH, PRESSURE_LOW_1, PRESSURE_LOW_2};
+// uint32_t *IDs = {PRESSURE_SENSOR_HIGH, PRESSURE_SENSOR_LOW_1, PRESSURE_SENSOR_LOW_2};
+// Field fields[3];
 uint8_t Data[4];
 uint32_t TxMailBox = 0;
 CAN_TxHeaderTypeDef TxHeader;
@@ -134,25 +135,42 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   }
 }
 
-if (!Queue_empty(&RX_QUEUE)) {
+/*fields[0] = PRESSURE_HIGH;
+fields[1] = PRESSURE_LOW_1;
+fields[2] = PRESSURE_LOW_2;*/
+
+void psyduck_entry() {
+
+  printf("\r\n");
+  printf("pressure sensor is live...\r\n");
+
+  printf("initializing CAN bus...\r\n");
+  if (CANBus_init(&hcan, &htim2) != HAL_OK) { Error_Handler(); }
+  if (CANBus_subscribe(STATE_CHANGE_REQ) != HAL_OK) { Error_Handler(); }
+
+  if ( !Queue_empty(&RX_QUEUE) ) {
     CANFrame rx_frame = CANBus_get_frame();
+    CANFrame tx_frame;
     uint8_t state_id = CANFrame_get_field(&rx_frame, STATE_ID);
     
     if ((state_id == ARMED) || (state_id == AUTO_PILOT) || (state_id == ACCELERATING)) {   // when brakes should be disengaged
       HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
-      CANFrame tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
-      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK_ID, state_id);
-      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK, 0x00);
-      CANFrame_put_frame(&tx_frame);      
+      tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
+      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID, state_id);
+      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK, 0x00);
+      CANBus_put_frame(&tx_frame);      
     }
 
     else if ((state_id == BRAKING) || (state_id == EMERGENCY_BRAKE) || (state_id == SYSTEM_FAILURE) || (state_id == MANUAL_OPERATION_WAITING)) {    //when brakes should be engaged
       HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
-      CANFrame tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
-      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK_ID, state_id);
-      CANFrame_set_field(&tx_frame, STATE_CHANGE_ACK, 0x00);
-      CANFrame_put_frame(&tx_frame);  
+      tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
+      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID, state_id);
+      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK, 0x00);
+      CANBus_put_frame(&tx_frame);  
     }
+
+  }
+
 
 }
 
@@ -210,6 +228,8 @@ int main(void)
   MX_CAN_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  psyduck_entry();
+  
   hcan.Instance->MCR = 0x60; // important for debugging canbus, allows for normal operation during debugging
   HAL_CAN_Start(&hcan);
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
@@ -223,20 +243,24 @@ int main(void)
 
   while (1)
   {
-    CANFrame tx_frame;
+    CANFrame tx_frame1;
+    CANFrame tx_frame2;
+    CANFrame tx_frame3;
 
-    for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-      float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
+    tx_frame1 = CANFrame_init(PRESSURE_SENSOR_HIGH);
+    CANFrame_set_field(&tx_frame1, PRESSURE_HIGH, FLOAT_TO_UINT(pressure[0]));
+    CANBus_put_frame(&tx_frame1);
 
-      for (uint8_t j=0 ; j < 4; j++) {
-        Data[j] = bytes[j];                   //writing down for the data buffer
-    }
+    tx_frame2 = CANFrame_init(PRESSURE_SENSOR_LOW_1);
+    CANFrame_set_field(&tx_frame2, PRESSURE_LOW_1, FLOAT_TO_UINT(pressure[1]));
+    CANBus_put_frame(&tx_frame2);
 
-    tx_frame = CANFrame_init(IDs[i]);
-    CANFrame_set_field(&tx_frame, field[i], Data);
-    CANBus_put_frame(&tx_frame);
-   }
-   HAL_Delay(200);
+    tx_frame3 = CANFrame_init(PRESSURE_SENSOR_LOW_2);
+    CANFrame_set_field(&tx_frame3, PRESSURE_LOW_2, FLOAT_TO_UINT(pressure[2]));
+    CANBus_put_frame(&tx_frame3);
+    
+    HAL_Delay(200);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
