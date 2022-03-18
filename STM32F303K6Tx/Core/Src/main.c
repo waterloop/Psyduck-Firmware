@@ -55,6 +55,7 @@ DMA_HandleTypeDef hdma_adc2;
 CAN_HandleTypeDef hcan;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim7;
 
 /* USER CODE BEGIN PV */
 uint16_t ADC2ConvertedValues[256]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
@@ -81,6 +82,7 @@ static void MX_DMA_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM7_Init(void);
 /* USER CODE BEGIN PFP */
 void float2Bytes(float val, uint8_t *bytes_array);
 /* USER CODE END PFP */
@@ -145,7 +147,7 @@ void psyduck_entry() {
   printf("pressure sensor is live...\r\n");
 
   printf("initializing CAN bus...\r\n");
-  if (CANBus_init(&hcan, &htim2) != HAL_OK) { Error_Handler(); }
+  if (CANBus_init(&hcan, &htim7) != HAL_OK) { Error_Handler(); }
   if (CANBus_subscribe(STATE_CHANGE_REQ) != HAL_OK) { Error_Handler(); }
 
   if ( !Queue_empty(&RX_QUEUE) ) {
@@ -227,6 +229,7 @@ int main(void)
   MX_ADC2_Init();
   MX_CAN_Init();
   MX_TIM2_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   psyduck_entry();
   
@@ -495,6 +498,44 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM7 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM7_Init(void)
+{
+
+  /* USER CODE BEGIN TIM7_Init 0 */
+
+  /* USER CODE END TIM7_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM7_Init 1 */
+
+  /* USER CODE END TIM7_Init 1 */
+  htim7.Instance = TIM7;
+  htim7.Init.Prescaler = 3599;
+  htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim7.Init.Period = 9999;
+  htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM7_Init 2 */
+
+  /* USER CODE END TIM7_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -537,20 +578,9 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-
-        TxHeader.StdId = IDs[i];
-        float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
-
-        for (uint8_t j=0 ; j < 4; j++) {
-          Data[3-j] = bytes[j];                   //writing down for the data buffer
-        }
-
-        HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
-        while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
-      }
-} */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  Waterloop_can_isr(htim);
+}
 /* USER CODE END 4 */
 
 /**
