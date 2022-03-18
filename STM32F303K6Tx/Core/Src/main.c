@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "string.h"
+#include "can.h"
+#include "psyduck_entry.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,22 +54,15 @@ DMA_HandleTypeDef hdma_adc2;
 CAN_HandleTypeDef hcan;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim7;
 
 /* USER CODE BEGIN PV */
 uint16_t ADC2ConvertedValues[256]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
-float pressure[3];
 float current;
+float pressure[3];
 uint32_t sum = 0;
 uint16_t mean = 0;
 float offset[4] = {-31.25, -31.25, 0, 0};
-uint8_t bytes[4];
-uint8_t IDs[3] = {0x20, 0x21, 0x22};
-uint8_t Data[4];
-uint32_t TxMailBox = 0;
-CAN_TxHeaderTypeDef TxHeader;
-CAN_FilterTypeDef FilterConfig;
-CAN_RxHeaderTypeDef RxHeader;
-uint32_t fifo =0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,24 +72,12 @@ static void MX_DMA_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM7_Init(void);
 /* USER CODE BEGIN PFP */
-void float2Bytes(float val, uint8_t *bytes_array);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void float2Bytes(float val, uint8_t *bytes_array){
-  // Create union of shared memory space
-  union {
-    float float_variable;
-    uint8_t temp_array[4];
-  } u;
-  // Overite bytes of union with float variable
-  u.float_variable = val;
-  // Assign bytes to input array
-  memcpy(bytes_array, u.temp_array, 4);
-}
-
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   for (uint8_t i=0; i < 4; i++) {
     sum = 0;
@@ -129,24 +111,6 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
       default:
       break;
         }
-  }
-}
-
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
-  HAL_CAN_GetRxMessage(hcan, fifo, &RxHeader, Data);                 // copy frame data to RX header
-  switch (RxHeader.StdId) {
-    case 0:
-      if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {      // when brakes should not be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
-      }
-      else if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {    //when brakes should be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
-      }
-      break;
-
-    default:
-      break;
-
   }
 }
 /* USER CODE END 0 */
@@ -183,7 +147,10 @@ int main(void)
   MX_ADC2_Init();
   MX_CAN_Init();
   MX_TIM2_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
+  psyduck_entry();
+  
   hcan.Instance->MCR = 0x60; // important for debugging canbus, allows for normal operation during debugging
   HAL_CAN_Start(&hcan);
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
@@ -194,25 +161,9 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-   for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-     TxHeader.StdId = IDs[i];
-     float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
 
-    for (uint8_t j=0 ; j < 4; j++) {
-      Data[j] = bytes[j];                   //writing down for the data buffer
-    }
-
-    HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
-    while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
-   }
-   HAL_Delay(200);
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-  }
+  psyduck_entry();
+  return  0;
   /* USER CODE END 3 */
 }
 
@@ -372,26 +323,7 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
-  FilterConfig.FilterIdHigh = 0x0000;
-  FilterConfig.FilterIdLow = 0x0000;
 
-  FilterConfig.FilterMaskIdHigh = 0xffff << 5;
-  FilterConfig.FilterMaskIdLow = 0x0000;
-
-  FilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-  FilterConfig.FilterBank = 13;
-  FilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-  FilterConfig.FilterScale = CAN_FILTERSCALE_16BIT;
-  FilterConfig.FilterActivation = CAN_FILTER_ENABLE;
-  HAL_CAN_ConfigFilter(&hcan, &FilterConfig);
-
-  //Configuring TX:
-  TxHeader.StdId = 0x00;
-  //TxHeader.ExtId = 0x01;
-  TxHeader.RTR = CAN_RTR_DATA;          // want data frame
-  TxHeader.IDE = CAN_ID_STD;         // want standard frame
-  TxHeader.DLC = 4;                // amounts of bytes u sending
-  TxHeader.TransmitGlobalTime = DISABLE;
   /* USER CODE END CAN_Init 2 */
 
 }
@@ -442,6 +374,44 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM7 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM7_Init(void)
+{
+
+  /* USER CODE BEGIN TIM7_Init 0 */
+
+  /* USER CODE END TIM7_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM7_Init 1 */
+
+  /* USER CODE END TIM7_Init 1 */
+  htim7.Instance = TIM7;
+  htim7.Init.Prescaler = 3599;
+  htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim7.Init.Period = 9999;
+  htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM7_Init 2 */
+
+  /* USER CODE END TIM7_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -484,20 +454,9 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  for (uint8_t i=0; i < 3; ++i) {                     //looping through CAN messages and sending data acquired
-
-        TxHeader.StdId = IDs[i];
-        float2Bytes(pressure[2-i], &bytes[0]);             //converting the floats to packets of bytes
-
-        for (uint8_t j=0 ; j < 4; j++) {
-          Data[3-j] = bytes[j];                   //writing down for the data buffer
-        }
-
-        HAL_CAN_AddTxMessage(&hcan, &TxHeader, Data, &TxMailBox );   // load message to mailbox
-        while (HAL_CAN_IsTxMessagePending( &hcan, TxMailBox));    //waiting till message gets through
-      }
-} */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  WLoopCAN_timer_isr(htim);
+}
 /* USER CODE END 4 */
 
 /**
