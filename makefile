@@ -162,7 +162,7 @@ $(BUILD_DIR)/%.o: %.s makefile | $(BUILD_DIR)
 	$(AS) -c $(CFLAGS) $< -o $@
 	@echo ""
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) makefile
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) makefile libs
 	$(CC) $(OBJECTS) ./WLoopCAN/bin/wloop_can.a $(LDFLAGS) -o $@
 	@echo ""
 	$(SZ) $@
@@ -175,13 +175,17 @@ $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
 	$(BIN) $< $@	
 	
 $(BUILD_DIR):
-	mkdir $@		
+	mkdir $@
+	
+libs:
+	cd ./WLoopCAN/ && make pressure_sensor
 
 #######################################
 # clean up
 #######################################
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -rf ./WLoopCAN/bin
 
 analyze:
 	$(PREFIX)objdump -t $(BUILD_DIR)/$(TARGET).elf

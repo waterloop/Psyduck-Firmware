@@ -22,9 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "string.h"
-#include <stdio.h>
 #include "can.h"
+#include "psyduck_entry.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,20 +58,11 @@ TIM_HandleTypeDef htim7;
 
 /* USER CODE BEGIN PV */
 uint16_t ADC2ConvertedValues[256]; //16 samples per sensor (3 pressure + 1 current), storing raw ADC values
-float pressure[3];
 float current;
+float pressure[3];
 uint32_t sum = 0;
 uint16_t mean = 0;
 float offset[4] = {-31.25, -31.25, 0, 0};
-uint8_t bytes[4];
-// uint32_t *IDs = {PRESSURE_SENSOR_HIGH, PRESSURE_SENSOR_LOW_1, PRESSURE_SENSOR_LOW_2};
-// Field fields[3];
-uint8_t Data[4];
-uint32_t TxMailBox = 0;
-CAN_TxHeaderTypeDef TxHeader;
-CAN_FilterTypeDef FilterConfig;
-CAN_RxHeaderTypeDef RxHeader;
-uint32_t fifo =0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,23 +74,10 @@ static void MX_CAN_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM7_Init(void);
 /* USER CODE BEGIN PFP */
-void float2Bytes(float val, uint8_t *bytes_array);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void float2Bytes(float val, uint8_t *bytes_array){
-  // Create union of shared memory space
-  union {
-    float float_variable;
-    uint8_t temp_array[4];
-  } u;
-  // Overite bytes of union with float variable
-  u.float_variable = val;
-  // Assign bytes to input array
-  memcpy(bytes_array, u.temp_array, 4);
-}
-
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   for (uint8_t i=0; i < 4; i++) {
     sum = 0;
@@ -136,65 +113,6 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
         }
   }
 }
-
-/*fields[0] = PRESSURE_HIGH;
-fields[1] = PRESSURE_LOW_1;
-fields[2] = PRESSURE_LOW_2;*/
-
-void psyduck_entry() {
-
-  printf("\r\n");
-  printf("pressure sensor is live...\r\n");
-
-  printf("initializing CAN bus...\r\n");
-  if (CANBus_init(&hcan, &htim7) != HAL_OK) { Error_Handler(); }
-  if (CANBus_subscribe(STATE_CHANGE_REQ) != HAL_OK) { Error_Handler(); }
-
-  if ( !Queue_empty(&RX_QUEUE) ) {
-    CANFrame rx_frame = CANBus_get_frame();
-    CANFrame tx_frame;
-    uint8_t state_id = CANFrame_get_field(&rx_frame, STATE_ID);
-    
-    if ((state_id == ARMED) || (state_id == AUTO_PILOT) || (state_id == ACCELERATING)) {   // when brakes should be disengaged
-      HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
-      tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
-      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID, state_id);
-      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK, 0x00);
-      CANBus_put_frame(&tx_frame);      
-    }
-
-    else if ((state_id == BRAKING) || (state_id == EMERGENCY_BRAKE) || (state_id == SYSTEM_FAILURE) || (state_id == MANUAL_OPERATION_WAITING)) {    //when brakes should be engaged
-      HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
-      tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
-      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID, state_id);
-      CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK, 0x00);
-      CANBus_put_frame(&tx_frame);  
-    }
-
-  }
-
-
-}
-
-// previous CAN Rx code
-/* void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
-  HAL_CAN_GetRxMessage(hcan, fifo, &RxHeader, Data);                 // copy frame data to RX header
-  switch (RxHeader.StdId) {
-    case 0:
-      if  ((Data[0] == 0x02) || (Data[0] == 0x03) || (Data[0] == 0x08)) {      // when brakes should not be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
-      }
-      else if ((Data[0] == 0x04) || (Data[0] == 0x05) || (Data[0] == 0x06) || (Data[0] == 0x07)) {    //when brakes should be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
-      }
-      break;
-
-    default:
-      break;
-
-  }
-} */
-
 /* USER CODE END 0 */
 
 /**
@@ -244,31 +162,8 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  while (1)
-  {
-    CANFrame tx_frame1;
-    CANFrame tx_frame2;
-    CANFrame tx_frame3;
-
-    tx_frame1 = CANFrame_init(PRESSURE_SENSOR_HIGH);
-    CANFrame_set_field(&tx_frame1, PRESSURE_HIGH, FLOAT_TO_UINT(pressure[0]));
-    CANBus_put_frame(&tx_frame1);
-
-    tx_frame2 = CANFrame_init(PRESSURE_SENSOR_LOW_1);
-    CANFrame_set_field(&tx_frame2, PRESSURE_LOW_1, FLOAT_TO_UINT(pressure[1]));
-    CANBus_put_frame(&tx_frame2);
-
-    tx_frame3 = CANFrame_init(PRESSURE_SENSOR_LOW_2);
-    CANFrame_set_field(&tx_frame3, PRESSURE_LOW_2, FLOAT_TO_UINT(pressure[2]));
-    CANBus_put_frame(&tx_frame3);
-    
-    HAL_Delay(200);
-
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-  }
+  psyduck_entry();
+  return  0;
   /* USER CODE END 3 */
 }
 
@@ -428,26 +323,7 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
-  FilterConfig.FilterIdHigh = 0x0000;
-  FilterConfig.FilterIdLow = 0x0000;
 
-  FilterConfig.FilterMaskIdHigh = 0xffff << 5;
-  FilterConfig.FilterMaskIdLow = 0x0000;
-
-  FilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-  FilterConfig.FilterBank = 13;
-  FilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-  FilterConfig.FilterScale = CAN_FILTERSCALE_16BIT;
-  FilterConfig.FilterActivation = CAN_FILTER_ENABLE;
-  HAL_CAN_ConfigFilter(&hcan, &FilterConfig);
-
-  //Configuring TX:
-  TxHeader.StdId = 0x00;
-  //TxHeader.ExtId = 0x01;
-  TxHeader.RTR = CAN_RTR_DATA;          // want data frame
-  TxHeader.IDE = CAN_ID_STD;         // want standard frame
-  TxHeader.DLC = 4;                // amounts of bytes u sending
-  TxHeader.TransmitGlobalTime = DISABLE;
   /* USER CODE END CAN_Init 2 */
 
 }
@@ -579,7 +455,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  Waterloop_can_isr(htim);
+  WLoopCAN_timer_isr(htim);
 }
 /* USER CODE END 4 */
 

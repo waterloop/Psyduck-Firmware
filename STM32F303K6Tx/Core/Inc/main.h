@@ -32,7 +32,6 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "can.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -42,7 +41,9 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
+extern CAN_HandleTypeDef hcan;
 
+extern TIM_HandleTypeDef htim7;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
@@ -54,7 +55,7 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+extern float pressure[3];
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
