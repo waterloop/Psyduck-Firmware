@@ -28,24 +28,31 @@ void psyduck_entry() {
       CANFrame tx_frame;
       uint8_t state_id = CANFrame_get_field(&rx_frame, STATE_ID);
 
-      if ((state_id == ARMED) || (state_id == AUTO_PILOT) ||
-          (state_id == ACCELERATING)) { // when brakes should be disengaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_RESET);
+      if (
+          (state_id == ARMED) ||
+          (state_id == AUTO_PILOT) ||
+          (state_id == ACCELERATING)
+      )
+      { // when brakes should be disengaged
+        DISENGAGE_BRAKES();
+
         tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
-        CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID,
-                           state_id);
+        CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID, state_id);
         CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK, 0x00);
         CANBus_put_frame(&tx_frame);
       }
 
-      else if ((state_id == BRAKING) || (state_id == EMERGENCY_BRAKE) ||
-               (state_id == SYSTEM_FAILURE) ||
-               (state_id ==
-                MANUAL_OPERATION_WAITING)) { // when brakes should be engaged
-        HAL_GPIO_WritePin(CONTROL_GPIO_Port, CONTROL_Pin, GPIO_PIN_SET);
+      else if (
+          (state_id == BRAKING) ||
+          (state_id == EMERGENCY_BRAKE) ||
+          (state_id == SYSTEM_FAILURE) ||
+          (state_id == MANUAL_OPERATION_WAITING)
+      )
+      { // when brakes should be engaged
+        ENGAGE_BRAKES();
+
         tx_frame = CANFrame_init(PRESSURE_SENSOR_STATE_CHANGE_ACK_NACK);
-        CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID,
-                           state_id);
+        CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK_ID, state_id);
         CANFrame_set_field(&tx_frame, PRESSURE_SENSOR_STATE_CHANGE_ACK, 0x00);
         CANBus_put_frame(&tx_frame);
       }
