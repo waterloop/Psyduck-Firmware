@@ -59,7 +59,7 @@ void psyduck_entry() {
     }
 
     if (RELAY_HEARTBEAT_ERROR_FLAG) { 
-      DISENGAGE_BRAKES();
+      ENGAGE_BRAKES();
     }
 
     // TX Code
