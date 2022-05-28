@@ -58,6 +58,10 @@ void psyduck_entry() {
       }
     }
 
+    if (RELAY_HEARTBEAT_ERROR_FLAG) { 
+      DISENGAGE_BRAKES();
+    }
+
     // TX Code
     CANFrame tx_frame1;
     CANFrame tx_frame2;
